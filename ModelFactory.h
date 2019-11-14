@@ -6,7 +6,10 @@
 #define MODELGENERATORBASEDONSKETCH_MODELFACTORY_H
 
 #include <string>
+#include <cmath>
 #include <pmp/SurfaceMesh.h>
+#include <pmp/algorithms/SurfaceRemeshing.h>
+#include "spherical_harmonic/ConstrainedSphericalCoordinate.h"
 #include "contour/ContourFactory.h"
 #include "spherical_harmonic/SphericalHarmonics.h"
 #include "triangulation/TriangulationUtil.h"
@@ -21,6 +24,7 @@
 #include "optimizer/SVDOptimizer.h"
 #include "optimizer/LuOptimizer.h"
 #include "Parameterization.h"
+#include "detail_builder/DetailBuilder.h"
 #include "io/MeshIO.h"
 #include "utils/PmpUtils.h"
 
@@ -42,10 +46,10 @@ private:
     ContourCollection contourCollection;
     SphericalHarmonics sphericalHarmonics;
     SphericalHarmonics meshSphericalHarmonics;
+    SphericalHarmonics zSphericalHarmonics;
     ContourSphericalCoordinate contourSphericalCoordinate;
     xry_mesh::Laplacian L;
     SurfaceMesh mesh;
-    SurfaceMesh ballMesh;
     MatrixXf ci;
 
 public:
@@ -154,21 +158,17 @@ public:
     void buildModel() {
         loadContour();
         calcSphericalHarmonics();
-        convertImg2Mesh();
-        addPointOwnership();
-        MeshIO::save_mesh(mesh, "triangulation.obj");
-        paratemerization();
-        calcTriangulationSphericalHarmonics();
-        MeshIO::save_mesh(mesh, "parameterization.obj");
-        projectMeshZ();
-        MeshIO::save_mesh(mesh, "sphere.obj");
+        loadMesh();
+        calcZSphericalHarmonics();
+        calcMeshSphericalHarmonics();
         calcUniformLaplacian(L);
         solve_xy();
         solve_z();
         rebuild();
-        MeshIO::save_mesh(mesh, "result_without_detail.obj");
-        buildInside();
-        MeshIO::save_mesh(mesh, resultPath);
+        MeshIO::save_mesh(mesh, "rough_result.obj");
+        DetailBuilder detailBuilder(mesh);
+        detailBuilder.build();
+        MeshIO::save_mesh(mesh, "result.obj");
     }
 
 private:
@@ -190,6 +190,37 @@ private:
         assert(contourCollection.size() > 0);
     }
 
+    void loadMesh() {
+        MeshIO::read_mesh(mesh, "ball.obj");
+        moveToOrigin(mesh);
+        MeshIO::save_mesh(mesh, "origin_point_ball.obj");
+    }
+
+    void moveToOrigin(SurfaceMesh &mesh) {
+        pmp::Scalar MAX = INT_MIN, MIN = INT_MAX;
+        Vertex vMax;
+        for (const auto &v : mesh.vertices()) {
+            pmp::Point p = mesh.position(v);
+            if (p[2] > MAX) {
+                MAX = p[2];
+                vMax = v;
+            }
+            if (p[2] < MIN) {
+                MIN = p[2];
+            }
+        }
+        pmp::Point p = mesh.position(vMax);
+        pmp::Scalar r = (MAX - MIN) / 2;
+        pmp::Scalar deltaX = p[0], deltaY = p[1];
+        pmp::Scalar deltaZ = p[2] - r;
+        for (auto v : mesh.vertices()) {
+            pmp::Point &p = mesh.position(v);
+            p[0] -= deltaX;
+            p[1] -= deltaY;
+            p[2] -= deltaZ;
+        }
+    }
+
     void paratemerization() {
         Contour contour = contourCollection.getContours()[0];
         Parameterization parameterization(mesh, contour.rows(), contourSphericalCoordinate);
@@ -200,6 +231,12 @@ private:
         contourSphericalCoordinate = contourCollection.getSphericalCoordinates().at(0);
         assert(contourCollection.getContours().at(0).isOutskirt());
         sphericalHarmonics = SphericalHarmonics(level, &contourSphericalCoordinate);
+    }
+
+    void calcZSphericalHarmonics() {
+        Contour contour = contourCollection.getContours()[0];
+        ConstrainedSphericalCoordinate coordinate(contour, contourCollection.getSphereCircumference(), 5);
+        zSphericalHarmonics = SphericalHarmonics(level, &coordinate);
     }
 
     void convertImg2Mesh() {
@@ -283,7 +320,7 @@ private:
     void solve_z() {
         VectorXf G;
         VectorXf vz = this->calcVz();
-        MatrixXf contourHar = sphericalHarmonics.getMatrix();
+        MatrixXf contourHar = zSphericalHarmonics.getMatrix();
         logDebug() << "contourHar size =" << contourHar.rows() << "*" << contourHar.cols();
         MatrixXf meshHar = meshSphericalHarmonics.getMatrix();
         logDebug() << "meshHar size =" << meshHar.rows() << "*" << meshHar.cols();
@@ -292,19 +329,21 @@ private:
         G.setConstant(meshHar.rows(), 3);
         MatrixXf A = lambda_z * (meshHar.transpose() * LaplaceMatrix.transpose() * LaplaceMatrix * meshHar) + contourHar.transpose() * contourHar;
         logDebug() << "A size =" << A.rows() << "*" << A.cols();
-        MatrixXf b = contourHar.transpose() * vz + lambda_z * meshHar.transpose() * LaplaceMatrix.transpose() * G;
+        MatrixXf b = -lambda_z * meshHar.transpose() * LaplaceMatrix.transpose() * G - contourHar.transpose() * vz;
         logDebug() << "b size =" << b.rows() << "*" << b.cols();
         LdltOptimizer optimizer(A, b);
         MatrixXf cz = optimizer.solve();
         ci.col(2) = cz.col(0);
-        //logDebug() << ci;
     }
 
     VectorXf calcVz() {
         vector<pmp::Scalar> vecVz;
-        int z = 0;
+        int z = 5;
         for(const auto& contour : contourCollection.getContours()) {
             logDebug() << "contour size =" << contour.rows();
+            for(size_t i = 0; i < contour.rows(); i++) {
+                vecVz.push_back(0);
+            }
             for(size_t i = 0; i < contour.rows(); i++) {
                 vecVz.push_back(z);
             }

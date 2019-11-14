@@ -8,9 +8,12 @@
 #include <vector>
 #include <pmp/SurfaceMesh.h>
 #include <pmp/algorithms/DifferentialGeometry.h>
+#include <pmp/algorithms/SurfaceNormals.h>
 #include "PmpException.h"
 #include "EigenUtils.h"
 #include "../contour/Contour.h"
+#include "log_utils/Logger.h"
+#include "../barycenter/BarycenterCoordinate.h"
 
 using namespace pmp;
 using namespace std;
@@ -24,6 +27,8 @@ const int FIRST_FACE = 0;
 const int SECOND_FACE = 1;
 const int FIRST_VERTEX = 0;
 const int SECOND_VERTEX = 1;
+const double delta = 1e-5;
+const pmp::Scalar pi = 2 * acos(0);
 
 class PmpUtils {
 public:
@@ -93,6 +98,112 @@ public:
             }
         }
         return result;
+    }
+
+    static Vertex findVertexByPosition(const SurfaceMesh &mesh, const pmp::Point p) {
+        pmp::Scalar MIN = INT_MAX;
+        Vertex res;
+        for (const auto v : mesh.vertices()) {
+            pmp::Point tmpP = mesh.position(v);
+            if (pmp::norm(tmpP - p) < MIN) {
+                MIN = pmp::norm(tmpP - p);
+                res = v;
+            }
+        }
+        return res;
+    }
+
+    static pmp::Normal getVertexNormal(const pmp::SurfaceMesh &mesh, const pmp::Vertex v) {
+        return SurfaceNormals::compute_vertex_normal(mesh, v);
+    }
+
+    static pmp::Point projectToPlane(const pmp::Normal &n, const pmp::Point &p) {
+        return p - n * pmp::dot(n, p) / (pmp::norm(n) * pmp::norm(n));
+    }
+
+    static void buildMesh(SurfaceMesh &mesh, const vector<pmp::Point> &points, const Eigen::Matrix3Xi& faces) {
+        vector<pmp::Vertex> vertices;
+        for (auto p : points) {
+            Vertex v = mesh.add_vertex(p);
+            vertices.push_back(v);
+        }
+        for (size_t i = 0; i < faces.cols(); i++) {
+            mesh.add_triangle(vertices[faces(0, i)], vertices[faces(1, i)], vertices[faces(2 , i)]);
+        }
+    }
+
+    static void findBoundary(const SurfaceMesh &mesh, vector<pmp::Vertex> &boundary) {
+        pmp::Vertex startV;
+        pmp::Halfedge halfedge;
+        for (auto v : mesh.vertices()) {
+            if (mesh.is_boundary(v)) {
+                startV = v;
+                break;
+            }
+        }
+        boundary.push_back(startV);
+        halfedge = mesh.halfedge(startV);
+        if (mesh.is_valid(mesh.face(halfedge))) halfedge = mesh.opposite_halfedge(halfedge);
+        pmp::Vertex nextV = mesh.to_vertex(halfedge);
+        assert(mesh.is_boundary(nextV));
+        while (nextV != startV) {
+            boundary.push_back(nextV);
+            halfedge = mesh.next_halfedge(halfedge);
+            nextV = mesh.to_vertex(halfedge);
+            assert(mesh.is_boundary(nextV));
+        }
+    }
+
+    /**
+     * 判断点是否位于一个三角形内部
+     * @param p
+     * @param A
+     * @param B
+     * @param C
+     * @return
+     */
+    static bool pointInFace(const pmp::Point &p, const pmp::Point &A, const pmp::Point &B, const pmp::Point &C) {
+        if (!pointOnPlane(p, A, B, C)) return false;
+        pmp::Point AC = C - A;
+        pmp::Point AB = B - A;
+        pmp::Point AP = p - A;
+        pmp::Scalar fi = pmp::dot(AP, AC) * pmp::dot(AB, AB) - pmp::dot(AP, AB) * pmp::dot(AC, AB);
+        pmp::Scalar fj = pmp::dot(AP, AB) * pmp::dot(AC, AC) - pmp::dot(AP, AC) * pmp::dot(AC, AB);
+        pmp::Scalar fd = pmp::dot(AC, AC) * pmp::dot(AB, AB) - pmp::dot(AC, AB) * pmp::dot(AC, AB);
+        if (fd < 0) logError() << "error fd < 0";
+        return fi >= 0 && fj >= 0 && fi + fj - fd <= 0;
+    }
+
+    static bool pointInFace(const SurfaceMesh &mesh, const pmp::Point &p, const pmp::Face &f) {
+        vector<pmp::Point> vecP;
+        for (auto v : mesh.vertices(f)) {
+            vecP.push_back(mesh.position(v));
+        }
+        return pointInFace(p, vecP[0], vecP[1], vecP[2]);
+    }
+
+    /**
+     * 判断点是否与三点组成的面位于一个平面
+     * @param p
+     * @param A
+     * @param B
+     * @param C
+     * @return
+     */
+    static bool pointOnPlane(const pmp::Point &p, const pmp::Point &A, const pmp::Point &B, const pmp::Point &C) {
+        pmp::Point AP = p - A;
+        pmp::Point AB = B - A;
+        pmp::Point AC = C - A;
+        pmp::Point n = pmp::cross(AB, AC);
+        pmp::Scalar f = pmp::dot(n, AP);
+
+        return abs(f) < delta;
+    }
+
+    static pmp::Point getPointByBarycenterCoor(const pmp::Point &A, const pmp::Point &B, const pmp::Point &C, const BarycenterCoordinate &coordinate) {
+        pmp::Point p;
+        p = coordinate.getX() * A + coordinate.getY() * B + coordinate.getZ() * C;
+        return p;
     }
 };
 

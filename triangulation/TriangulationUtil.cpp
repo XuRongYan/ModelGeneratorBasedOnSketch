@@ -2,32 +2,41 @@
 // Created by 徐溶延 on 2019/9/11.
 //
 #include "TriangulationUtil.h"
+#include "../utils/PmpUtils.h"
+#include "../utils/EigenUtils.h"
 
 namespace xry_mesh {
-    void addEdgeProperty(SurfaceMesh &mesh, const Matrix2Xi &segmentation, const vector<Vertex> &vids);
-    void findNewContours(SurfaceMesh &mesh, vector<Vertex> vertices, size_t segmentNum, ContourCollection &contours);
-
     SurfaceMesh triangulate(ContourCollection &contours) {
         Matrix2Xd V, H;
         Matrix2Xi S;
+        Matrix3Xi T;
         Matrix2Xd points2D;
         Matrix3Xi triangles;
         Matrix2Xi segmentations;
         prepareDataForTriangulation(contours, V, S, H);
         triangulate_polygon(V, S, H, 60, 30, points2D, triangles, segmentations);
         SurfaceMesh mesh;
-        vector<Vertex> vecVertex;
-        for (size_t i = 0; i < points2D.cols(); i++) {
-            Vertex v = mesh.add_vertex(pmp::Point(points2D(0, i), points2D(1, i), 0));
-            vecVertex.push_back(v);
-        }
-        for (size_t i = 0; i < triangles.cols(); i++) {
-            mesh.add_triangle(vecVertex[triangles(0, i)], vecVertex[triangles(1, i)], vecVertex[triangles(2, i)]);
-        }
+        vector<pmp::Vertex> vecVertex;
+        buildMesh(mesh, points2D, triangles, segmentations, vecVertex);
         addEdgeProperty(mesh, segmentations, vecVertex);
         vector<Matrix3Xf> vecContours;
         findNewContours(mesh, vecVertex, segmentations.cols(), contours);
         return mesh;
+    }
+
+    SurfaceMesh refineMesh(const SurfaceMesh &mesh, const vector<pmp::Point> &details) {
+        Eigen::Matrix2Xd V, H;
+        Eigen::Matrix2Xi S;
+        Eigen::Matrix3Xi T;
+        Matrix2Xd points2D;
+        Matrix3Xi triangles;
+        Matrix2Xi segmentations;
+        prepareMeshBoundary(mesh, V, S, details);
+        triangulate_polygon(V, S, H,20, 35, points2D, triangles, segmentations);
+        vector<pmp::Vertex> vecVertex;
+        SurfaceMesh refinedMesh;
+        buildMesh(refinedMesh, points2D, triangles, segmentations, vecVertex);
+        return refinedMesh;
     }
 
     void prepareDataForTriangulation(ContourCollection &contours, Matrix2Xd &V, Matrix2Xi &S, Matrix2Xd &H) {
@@ -36,11 +45,36 @@ namespace xry_mesh {
         //prepareHoles(contours, H);
     }
 
+    void prepareDataForRefinement(const SurfaceMesh &mesh, Matrix2Xd &V, Matrix2Xi &S, Matrix3Xi &T) {
+        prepareVertex(mesh, V);
+        //prepareSegmentations(mesh, S);
+        prepareTriangles(mesh, T);
+    }
+
+    void prepareVertex(const SurfaceMesh& mesh, Matrix2Xd &V) {
+        V.resize(2, mesh.n_vertices());
+        for (const auto &v : mesh.vertices()) {
+            pmp::Point p = mesh.position(v);
+            V.col(v.idx()) << p[0], p[1];
+        }
+    }
+
     void prepareVertex(ContourCollection &contours, Matrix2Xd &V) {
         const Matrix3Xf &points = contours.getMergedContour().getContour();
         V.resize(2, points.cols());
         for (size_t i = 0; i < points.cols(); i++) {
             V.col(i) << points(0, i), points(1, i);
+        }
+    }
+
+    void prepareTriangles(const SurfaceMesh &mesh, Matrix3Xi &T) {
+        T.resize(3, mesh.n_faces());
+        for (auto f : mesh.faces()) {
+            vector<pmp::Vertex> vecV;
+            for (const auto &v : mesh.vertices(f)) {
+                vecV.push_back(v);
+            }
+            T.col(f.idx()) << vecV[0].idx(), vecV[1].idx(), vecV[2].idx();
         }
     }
 
@@ -53,6 +87,16 @@ namespace xry_mesh {
                 segmentation.col(row + i) << row + (i + 1) % contour.rows(), row + i;
             }
             row += contour.rows();
+        }
+    }
+
+    void prepareSegmentations(const SurfaceMesh &mesh, Matrix2Xi &E) {
+        E.resize(2, mesh.n_edges());
+        size_t i = 0;
+        for (const auto &e : mesh.edges()) {
+            pmp::Vertex v1 = mesh.vertex(e, 0);
+            pmp::Vertex v2 = mesh.vertex(e, 1);
+            E.col(i) << v1.idx(), v2.idx();
         }
     }
 
@@ -98,6 +142,44 @@ namespace xry_mesh {
             assert(mesh.is_valid(e));
             property[e] = true;
         }
+    }
+
+    void prepareMeshBoundary(const SurfaceMesh& mesh, Eigen::Matrix2Xd &points, Eigen::Matrix2Xi &segments, const vector<pmp::Point> &details) {
+        vector<pmp::Vertex> vecBoundary;
+        vector<double> vecPoints;
+        vector<int> vecSegments;
+        PmpUtils::findBoundary(mesh, vecBoundary);
+        size_t idx = 0;
+        size_t maxNum = vecBoundary.size() + details.size();
+        for (auto v : vecBoundary) {
+            pmp::Point p = mesh.position(v);
+            vecPoints.push_back(p[0]);
+            vecPoints.push_back(p[1]);
+            vecSegments.push_back(idx);
+            vecSegments.push_back((idx + 1) % vecBoundary.size());
+            idx++;
+        }
+        size_t tmp = idx;
+        for (auto p : details) {
+            vecPoints.push_back(p[0]);
+            vecPoints.push_back(p[1]);
+            vecSegments.push_back(idx);
+            vecSegments.push_back(idx + 1 == maxNum ? tmp : idx + 1);
+            idx++;
+        }
+        points = EigenUtils::mapMatrix2Xd(vecPoints);
+        segments = EigenUtils::mapMatrix2Xi(vecSegments);
+    }
+
+    void buildMesh(SurfaceMesh &mesh, Matrix2Xd points2D, Matrix3Xi triangles, Matrix2Xi segmentations, vector<pmp::Vertex> &vecVertex) {
+        for (size_t i = 0; i < points2D.cols(); i++) {
+            Vertex v = mesh.add_vertex(pmp::Point(points2D(0, i), points2D(1, i), 0));
+            vecVertex.push_back(v);
+        }
+        for (size_t i = 0; i < triangles.cols(); i++) {
+            mesh.add_triangle(vecVertex[triangles(0, i)], vecVertex[triangles(1, i)], vecVertex[triangles(2, i)]);
+        }
+
     }
 
     void findNewContours(SurfaceMesh &mesh, vector<Vertex> vertices, size_t segmentNum, ContourCollection &contours) {

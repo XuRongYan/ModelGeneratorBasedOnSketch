@@ -33,6 +33,17 @@ public:
         calcSphericalHarmonics();
     }
 
+    SphericalHarmonics(SphericalHarmonics &sphericalHarmonics, int multiply) {
+        level = sphericalHarmonics.getLevel();
+
+        this->sphericalCoordinate = new SphericalCoordinate();
+        this->sphericalCoordinate->setPhis(sphericalHarmonics.getSphericalCoordinate()->getPhis());
+        this->sphericalCoordinate->setThetas(sphericalHarmonics.getSphericalCoordinate()->getThetas());
+        this->sphericalCoordinate->setVecZ(sphericalHarmonics.getSphericalCoordinate()->getVecZ());
+
+
+    }
+
 
     const MatrixXf &getMatrix() const {
         return sphericalHarmonicMatrix;
@@ -40,6 +51,42 @@ public:
 
     SphericalCoordinate *getSphericalCoordinate() const {
         return sphericalCoordinate;
+    }
+
+    size_t getLevel() const {
+        return level;
+    }
+
+    void setLevel(size_t level) {
+        SphericalHarmonics::level = level;
+    }
+
+    size_t getPointSize() const {
+        return pointSize;
+    }
+
+    void setPointSize(size_t pointSize) {
+        SphericalHarmonics::pointSize = pointSize;
+    }
+
+    void setSphericalCoordinate(SphericalCoordinate *sphericalCoordinate) {
+        SphericalHarmonics::sphericalCoordinate = sphericalCoordinate;
+    }
+
+    const MatrixXf &getSphericalHarmonicMatrix() const {
+        return sphericalHarmonicMatrix;
+    }
+
+    void setSphericalHarmonicMatrix(const MatrixXf &sphericalHarmonicMatrix) {
+        SphericalHarmonics::sphericalHarmonicMatrix = sphericalHarmonicMatrix;
+    }
+
+    const vector<pmp::Scalar> &getVecSphericalHarmonic() const {
+        return vecSphericalHarmonic;
+    }
+
+    void setVecSphericalHarmonic(const vector<pmp::Scalar> &vecSphericalHarmonic) {
+        SphericalHarmonics::vecSphericalHarmonic = vecSphericalHarmonic;
     }
 
 private:

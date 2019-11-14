@@ -49,7 +49,7 @@ namespace jy_mesh {
                             Eigen::Matrix3Xi &T,
                             Eigen::Matrix2Xi &NS) {
         std::stringstream para;
-        para << "a" << max_area << "q" << min_angle << "YpzBs";//s
+        para << "a" << max_area << "q" << min_angle << "YpzBD";//s
         const std::string &full_flags = para.str();
 
         // Prepare the input struct

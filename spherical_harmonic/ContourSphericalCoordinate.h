@@ -6,6 +6,7 @@
 #define MODELGENERATORBASEDONSKETCH_CONTOURSPHERICALCOORDINATE_H
 
 #include "SphericalCoordinate.h"
+#include "ConstrainedSphericalCoordinate.h"
 
 class ContourSphericalCoordinate : public SphericalCoordinate {
 private:

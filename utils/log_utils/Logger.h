@@ -11,7 +11,6 @@
 #include "Debug.h"
 #include "LogContext.h"
 #include "../Time.h"
-
 class Logger {
 private:
     LogContext context;

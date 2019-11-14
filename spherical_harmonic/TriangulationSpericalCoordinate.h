@@ -55,8 +55,6 @@ private:
         pmp::Scalar x = p[0];
         pmp::Scalar y = p[1];
         pmp::Scalar c_r = 2 * pi * sqrt(x * x + y * y) / circumference;
-        if (c_r > 1) c_r = 1;
-        else if (c_r < -1) c_r = -1;
         pmp::Scalar theta = asin(c_r);
         thetas.push_back(theta);
     }

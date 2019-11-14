@@ -28,6 +28,19 @@ public:
         return Map<VectorXf>(vec.data(), vec.size());
     }
 
+    static Matrix3Xi mapMatrix3Xi(vector<int> vec) {
+        return Map<Matrix3Xi>(vec.data(), 3, vec.size() / 3);
+    }
+
+    static Matrix2Xi mapMatrix2Xi(vector<int> vec) {
+        return Map<Matrix2Xi>(vec.data(), 2, vec.size() / 2);
+    }
+
+    static Matrix2Xd mapMatrix2Xd(vector<double>& vec) {
+        return Map<Matrix2Xd>(vec.data(), 2, vec.size() / 2);
+    }
+
+
 
 };
 

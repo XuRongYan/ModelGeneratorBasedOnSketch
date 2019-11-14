@@ -11,10 +11,11 @@
 #include <vector>
 #include <cassert>
 #include "../contour/Contour.h"
+#include "../utils/PmpUtils.h"
 
 using namespace std;
 using namespace Eigen;
-const pmp::Scalar pi = 2 * acos(0);
+
 class SphericalCoordinate {
 protected:
     vector<pmp::Scalar> phis;
